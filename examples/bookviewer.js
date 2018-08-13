@@ -211,13 +211,15 @@ function genBookView(book, pair) {
             d[2] = colors.stripColors(d[2])
     });
 
-    var ticker = {price:'',updown:0}
-    if (tickers.has(pair))
-        ticker = tickers.get(pair)
-    if (ticker.updown > 0) {
-        rows.push([colors.bgRed(' '.repeat(17)), fmtItem(colors.bold(colors.black(ticker['price'])),0,0), '']);
-    } else {
-        rows.push([colors.bgGreen(' '.repeat(17)), fmtItem(colors.bold(colors.black(ticker['price'])),0,0), '']);
+    if (asks.length || bids.length) {
+        var ticker = {price:'',updown:0}
+        if (tickers.has(pair))
+            ticker = tickers.get(pair)
+        if (ticker.updown > 0) {
+            rows.push([colors.bgRed(' '.repeat(17)), fmtItem(colors.bold(colors.black(ticker['price'])),0,0), '']);
+        } else {
+            rows.push([colors.bgGreen(' '.repeat(17)), fmtItem(colors.bold(colors.black(ticker['price'])),0,0), '']);
+        }
     }
 
     bids.map((d) => {
@@ -288,6 +290,7 @@ function genTickerView() {
             cols.push(new Date(Number.parseInt(v['time'])).toLocaleString());
         var lastupdate = (now - Number.parseInt(v['time']))/1000
         lastupdate = lastupdate > 0 ? Math.round(lastupdate+0.5) : 0;
+        lastupdate = lastupdate > 6 ? colors.bgRed(lastupdate) : lastupdate;
         cols.push(lastupdate + 's')
         rows.push(cols);
     }
