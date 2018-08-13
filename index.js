@@ -14,6 +14,7 @@ exports.log = require('./lib/widget/log.js')
 exports.picture = require('./lib/widget/picture.js')
 exports.sparkline = require('./lib/widget/sparkline.js')
 exports.table = require('./lib/widget/table.js')
+exports.book = require('./lib/widget/book.js')
 exports.tree = require('./lib/widget/tree.js')
 exports.markdown = require('./lib/widget/markdown.js')
 
