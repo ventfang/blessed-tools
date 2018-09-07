@@ -1,3 +1,4 @@
+var pako = require('pako');
 var blessed = require('blessed')
   , contrib = require('../')
   , screen = blessed.screen()
@@ -16,8 +17,8 @@ for (var i=0; i<5; ++i) {
         , interactive: false
         , label: 'Order Book'
         , border: {type: "line", fg: "cyan"}
-        , columnSpacing: 5
-        , columnWidth: [5, 15, 17]});
+        , columnSpacing: 1
+        , columnWidth: [5, 12, 25]});
     screen.append(book);
     books.push(book);
 }
@@ -31,7 +32,7 @@ var msgbox = grid.set(10,0,2,5,contrib.log,
 
 screen.append(msgbox)
 
-var url = 'wss://ws-feed.pro.coinbase.com';
+var url = 'wss://api.huobi.pro/ws';
 var WebSocketClient = require('websocket').client
 var client = new WebSocketClient()
 var changes_disp_interval = 3;
@@ -40,16 +41,16 @@ var depths = new Map();
 var ticker_headers = ['  pair', 'last', 'change', 'baseVol', 'quoteVol', '24h high', '24h low', 'updated at', 'last update']
 var book_headers = ['', 'price', 'amount']
 
-var markets = ["BTC-USD","ETH-USD","LTC-USD","BCH-USD","ETC-USD"]
-//markets = ["BCH-USD"]
-//markets = ["BTC-USD", 'ETC-USD']
+var markets = ["btcusdt", "ethusdt", "etcusdt", "dashusdt","eosusdt"]
+markets = ["smtusdt", "mdsusdt","cvcusdt"]
 markets.forEach((pair) => {tickers.set(pair, {price:0,updown:0})})
 
 function dolog(msg) {
-    //msgbox.log(msg);
+    msgbox.log(msg);
 }
 
 function showRate(elapsed, reqs) {
+    return;
     var rate = Math.round(reqs/elapsed*1e3)
     var msg = 'time us: ' + elapsed/1e3 + 's' + ', reqs: ' + reqs + ', rate: ' + rate + 'ops'
     msgbox.log(msg);
@@ -60,17 +61,22 @@ function subStatus(conn) {
 }
 
 function subTopic(conn, pairs) {
-    var cmd = '{"type":"subscribe","channels":[]}';
-    cmd = JSON.parse(cmd)
-    var level2_50 = {"name":"level2_50","product_ids":[]}
-    var ticker_1000 = {"name":"ticker_1000","product_ids":[]}
     pairs.forEach((pair) => {
-        level2_50.product_ids.push(pair)
-        ticker_1000.product_ids.push(pair)
+        var rid = Math.round(Math.random()*10000000000)
+        var cmd = {
+            "sub": `market.${pair}.depth.step0`,
+            "id": `${rid}`
+        }
+        conn.sendUTF(JSON.stringify(cmd))
+        rid = Math.round(Math.random()*10000000000)
+        var tick = {
+            "sub": `market.${pair}.detail`,
+            "id": `${rid}`
+        }
+        conn.sendUTF(JSON.stringify(tick))
+        dolog(JSON.stringify(cmd))
+        dolog(JSON.stringify(tick))
     })
-    cmd.channels.push(level2_50)
-    cmd.channels.push(ticker_1000)
-    conn.sendUTF(JSON.stringify(cmd))
 }
 
 client.on('connectFailed', function(error) {
@@ -91,7 +97,7 @@ function check_connection(connection) {
         return;
     } else if (last_received > 5) {
         dolog('connection idle, sending ping...'+last_received)
-        connection.sendUTF('ping');
+        connection.sendUTF(JSON.stringify({"ping":Math.round(new Date().getTime() / 1000,0)}));
     }
     setTimeout(function() {check_connection(connection)}, 1000)
 }
@@ -106,41 +112,74 @@ client.on('connect', function(connection) {
     });
     connection.on('message', function(message) {
         last_received = 0;
-        if (message.type === 'utf8') {
-            dolog("Received: '" + message.utf8Data + "'");
-            var res = JSON.parse(message.utf8Data);
-            if (res.type == 'snapshot') {
+        if (message.type === 'binary') {
+            var data = pako.inflate(message.binaryData, { to: 'string' })
+            dolog("Received: '" + data + "'");
+            var res = JSON.parse(data);
+            if (typeof(res.ping) !== "undefined")
+                connection.sendUTF(JSON.stringify({"pong":res.ping}));
+            if (typeof(res.ch) === "undefined")
+                return
+            var ch = res.ch.split('.');
+            var pair = ch[1];
+            var type = ch[2];
+
+            if (type == 'detail') {
+                var data = res.tick;
+                var old = tickers.get(pair);
+                var ticker = {'pair':pair, 'updown':Number.parseFloat(data.close) - Number.parseFloat(old['price']),'price':data.close};
+                tickers.set(pair, ticker);
+            } else if (type == 'depth') {
+                var data = res.tick;
                 let asks = {}
                 let bids = {}
-                res.asks.forEach((level) => {
-                    asks[Number.parseFloat(level[0]).toString()] = ['1', level[0], level[1]];
+                var olddepth = {'asks':{}, 'bids':{}}
+                if (depths.has(pair))
+                    olddepth = depths.get(pair)
+                var changes = 0
+                if(data&&data.asks)data.asks.forEach((level) => {
+                    var tick = level[0].toString()
+                    var status = (olddepth.asks[tick] == null || olddepth.asks[tick][2] != level[1]) ? 1 : 0;
+                    if (status != 0) {
+                        changes += 1
+                        asks[tick] = ['1', tick, colors.red(level[1])];
+                    } else
+                        asks[tick] = ['1', tick, level[1]];
                 });
-                res.bids.forEach((level) => {
-                    bids[Number.parseFloat(level[0]).toString()] = ['1', level[0], level[1]];
+                if(data&&data.bids)data.bids.forEach((level) => {
+                    var tick = level[0].toString()
+                    var status = (olddepth.bids[tick] == null || olddepth.bids[tick][2] != level.lots) ? 1 : 0;
+                    if (status != 0) {
+                        changes += 1
+                        bids[tick] = ['1', tick, colors.green(level[1])];
+                    } else
+                        bids[tick] = ['1', tick, level[1]];
                 });
-                depths.set(res.product_id, {'asks':asks, 'bids':bids})
-                ben_timer = new Date().getTime()
-            } else if(res.type === 'l2update') {
-                if(res.changes == null)
-                    return;
-                res.changes.forEach((item) => {
-                    ben_counter += 1
-                    item[1] = Number.parseFloat(item[1]).toString()
-                    let level = item[0] == 'buy' ? depths.get(res.product_id)['bids'] : depths.get(res.product_id)['asks'];
-                    if (item[2] == '0') {
-                        level[colors.gray(item[1])] = [colors.gray('0'),colors.gray(item[1]),colors.gray(item[2])];
-                        delete level[item[1]]
-                        setTimeout(() => {delete level[colors.gray(item[1])]}, 100);
-                    } else {
-                        level[item[1]] = ['1',item[1], colors.bold(item[0] == 'buy' ? colors.green(item[2]):colors.red(item[2]))];
+
+                Object.keys(olddepth.asks).forEach((tick) => {
+                    tick = colors.stripColors(tick)
+                    if (asks[tick] == null) {
+                        asks[colors.gray(tick)] = [colors.gray('0'), colors.gray(tick), 0,0,0];
+                        setTimeout(() => {delete asks[colors.gray(tick)]}, 100);
+                        changes += 1
                     }
-                });
+                })
+
+                Object.keys(olddepth.bids).forEach((tick) => {
+                    tick = colors.stripColors(tick)
+                    if (bids[tick] == null) {
+                        bids[colors.gray(tick)] = [colors.gray('0'), colors.gray(tick), 0,0,0];
+                        setTimeout(() => {delete bids[colors.gray(tick)]}, 100);
+                        changes += 1
+                    }
+                })
+
+                ben_counter += changes
+                depths.set(pair, {'asks':asks, 'bids':bids})
+                if (ben_timer == 0)
+                    ben_timer = new Date().getTime()
                 var elapsed = new Date().getTime() - ben_timer
-                showRate(elapsed, ben_counter)
-            } else if (res.type == 'ticker') {
-                var old = tickers.get(res.product_id);
-                var ticker = {'pair':res.product_id, 'updown':Number.parseFloat(res.price) - Number.parseFloat(old['price']),'price':res.price};
-                tickers.set(res.product_id, ticker);
+                showRate(elapsed, ben_counter, changes)
             }
         }
     });
@@ -152,7 +191,7 @@ client.on('connect', function(connection) {
 });
 
 function fmtItem(item, decimal, dir) {
-    return ' '.repeat(8) + item;
+    return ' '.repeat(2) + item;
 }
 
 function fmtItem2(item, decimal=8) {
@@ -160,7 +199,8 @@ function fmtItem2(item, decimal=8) {
 	var idx = stripeditem.indexOf('.');
     if (idx == -1)
         stripeditem = stripeditem + '.0'
-    var prefix = ' '.repeat(4 - stripeditem.indexOf('.'))
+    var ppadd = 7 - stripeditem.indexOf('.')
+    var prefix = ' '.repeat(ppadd>0?ppadd:0)
     var padding = decimal - (stripeditem.length - stripeditem.indexOf('.'))
     var suffix = ' '.repeat(padding>0?padding:0)
     return prefix + item + colors.gray(suffix)
@@ -208,7 +248,7 @@ function genBookView(book, pair) {
         else if(colors.stripColors(d[0])!='0')
             d[2] = colors.stripColors(d[2])
     });
-    book.setData({title:pair.replace('-','/'), headers: book_headers, data: rows});
+    book.setData({title:pair, headers: book_headers, data: rows});
 }
 
 function genBookViews() {
@@ -228,7 +268,7 @@ function genBookViews() {
 setInterval(() => {
     genBookViews()
     screen.render()
-}, 10);
+}, 50);
 
 dolog('Connecting to ' + url);
 client.connect(url, null);

@@ -302,11 +302,8 @@ setInterval(() => {
 
 setInterval(() => {
     genBookViews()
-}, 300);
-
-setInterval(function() {
     screen.render()
-}, 100)
+}, 100);
 
 dolog('Connecting to ' + url);
 client.connect(url, null);

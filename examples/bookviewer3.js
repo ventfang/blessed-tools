@@ -8,7 +8,7 @@ var page_size = 5;
 var cur_page_book = 0;
 var books = [];
 for (var i=0; i<5; ++i) {
-    var book = grid.set(0,i,10,1,contrib.book,
+    var book = grid.set(0,i,8,1,contrib.book,
         { keys: true
         , fg: 'white'
         , selectedFg: 'white'
@@ -17,12 +17,12 @@ for (var i=0; i<5; ++i) {
         , label: 'Order Book'
         , border: {type: "line", fg: "cyan"}
         , columnSpacing: 5
-        , columnWidth: [5, 15, 17]});
+        , columnWidth: [5, 15, 17, 17, 17]});
     screen.append(book);
     books.push(book);
 }
 
-var msgbox = grid.set(10,0,2,5,contrib.log,
+var msgbox = grid.set(8,0,4,5,contrib.log,
    {
     fg: "green"
    , selectedFg: 'white'
@@ -31,7 +31,7 @@ var msgbox = grid.set(10,0,2,5,contrib.log,
 
 screen.append(msgbox)
 
-var url = 'wss://ws-feed.pro.coinbase.com';
+var url = 'wss://api.rightbtc.com/quote-websocket/BTCUSD/0/12456789/websocket'
 var WebSocketClient = require('websocket').client
 var client = new WebSocketClient()
 var changes_disp_interval = 3;
@@ -40,37 +40,33 @@ var depths = new Map();
 var ticker_headers = ['  pair', 'last', 'change', 'baseVol', 'quoteVol', '24h high', '24h low', 'updated at', 'last update']
 var book_headers = ['', 'price', 'amount']
 
-var markets = ["BTC-USD","ETH-USD","LTC-USD","BCH-USD","ETC-USD"]
-//markets = ["BCH-USD"]
-//markets = ["BTC-USD", 'ETC-USD']
-markets.forEach((pair) => {tickers.set(pair, {price:0,updown:0})})
+var markets = ["BTCUSD"]
+//markets = ['ZGCETP']
+markets.forEach((pair) => {
+    tickers.set(pair, {price:0,updown:0})
+    url = 'wss://api.rightbtc.com/quote-websocket/' + pair + '/0/12456789/websocket';
+})
 
 function dolog(msg) {
-    //msgbox.log(msg);
-}
-
-function showRate(elapsed, reqs) {
-    var rate = Math.round(reqs/elapsed*1e3)
-    var msg = 'time us: ' + elapsed/1e3 + 's' + ', reqs: ' + reqs + ', rate: ' + rate + 'ops'
     msgbox.log(msg);
 }
 
-function subStatus(conn) {
-
+function showRate(elapsed, reqs, changes) {
+    var rate = Math.round(reqs/elapsed*1e3)
+    var msg = 'time us: ' + elapsed/1e3 + 's' + ', reqs: ' + reqs + ', rate: ' + rate + 'ops, changes: ' + changes 
+    msgbox.log(msg);
 }
 
 function subTopic(conn, pairs) {
-    var cmd = '{"type":"subscribe","channels":[]}';
-    cmd = JSON.parse(cmd)
-    var level2_50 = {"name":"level2_50","product_ids":[]}
-    var ticker_1000 = {"name":"ticker_1000","product_ids":[]}
+    var sub = String.raw `["SUBSCRIBE\nid:sub-0\ndestination:/user/quote/depth\n\n\u0000"]`
+    conn.sendUTF(sub);
     pairs.forEach((pair) => {
-        level2_50.product_ids.push(pair)
-        ticker_1000.product_ids.push(pair)
+        var cmd = String.raw `["SUBSCRIBE\nid:sub-9\ndestination:/quote/quote.${pair}.depth.8\n\n\u0000"]`
+        dolog(cmd);
+        conn.sendUTF(cmd);
+        var snd = String.raw `["SEND\ndestination:/quote/depth\ncontent-length:37\n\n{\"symbol\": \"${pair}\",\"type\":\"default\"}\u0000"]`
+        conn.sendUTF(snd);
     })
-    cmd.channels.push(level2_50)
-    cmd.channels.push(ticker_1000)
-    conn.sendUTF(JSON.stringify(cmd))
 }
 
 client.on('connectFailed', function(error) {
@@ -82,7 +78,7 @@ var ben_counter = 0;
 var ben_timer = 0;
 var last_received = 0;
 function check_connection(connection) {
-    if (++last_received > 10) {
+    if (++last_received > 20) {
         last_received = 0;
         dolog('connection timeout, reconnecting...');
         connection.close(1001);
@@ -91,7 +87,7 @@ function check_connection(connection) {
         return;
     } else if (last_received > 5) {
         dolog('connection idle, sending ping...'+last_received)
-        connection.sendUTF('ping');
+        connection.sendUTF('["\\n"]');
     }
     setTimeout(function() {check_connection(connection)}, 1000)
 }
@@ -107,52 +103,93 @@ client.on('connect', function(connection) {
     connection.on('message', function(message) {
         last_received = 0;
         if (message.type === 'utf8') {
-            dolog("Received: '" + message.utf8Data + "'");
-            var res = JSON.parse(message.utf8Data);
-            if (res.type == 'snapshot') {
-                let asks = {}
-                let bids = {}
-                res.asks.forEach((level) => {
-                    asks[Number.parseFloat(level[0]).toString()] = ['1', level[0], level[1]];
-                });
-                res.bids.forEach((level) => {
-                    bids[Number.parseFloat(level[0]).toString()] = ['1', level[0], level[1]];
-                });
-                depths.set(res.product_id, {'asks':asks, 'bids':bids})
-                ben_timer = new Date().getTime()
-            } else if(res.type === 'l2update') {
-                if(res.changes == null)
-                    return;
-                res.changes.forEach((item) => {
-                    ben_counter += 1
-                    item[1] = Number.parseFloat(item[1]).toString()
-                    let level = item[0] == 'buy' ? depths.get(res.product_id)['bids'] : depths.get(res.product_id)['asks'];
-                    if (item[2] == '0') {
-                        level[colors.gray(item[1])] = [colors.gray('0'),colors.gray(item[1]),colors.gray(item[2])];
-                        delete level[item[1]]
-                        setTimeout(() => {delete level[colors.gray(item[1])]}, 100);
-                    } else {
-                        level[item[1]] = ['1',item[1], colors.bold(item[0] == 'buy' ? colors.green(item[2]):colors.red(item[2]))];
-                    }
-                });
-                var elapsed = new Date().getTime() - ben_timer
-                showRate(elapsed, ben_counter)
-            } else if (res.type == 'ticker') {
-                var old = tickers.get(res.product_id);
-                var ticker = {'pair':res.product_id, 'updown':Number.parseFloat(res.price) - Number.parseFloat(old['price']),'price':res.price};
-                tickers.set(res.product_id, ticker);
+            //dolog("Received: '" + message.utf8Data + "'");
+            var s = message.utf8Data;
+            if (s == 'o') {
+                connection.sendUTF(String.raw `["CONNECT\naccept-version:1.1,1.0\nheart-beat:10000,10000\n\n\u0000"]`);
+                return;
+            }
+            if (!s.startsWith('a'))
+                return;
+            if (s == 'a["\\n"]') {
+                connection.sendUTF('["\\n"]');
+                dolog('[ACK]')
+                return;
+            }
+            if (s.lastIndexOf('\\u0000') == -1)
+                return;
+
+            var res = JSON.parse(s.substr(1))[0].split('\n');
+            if (res[0] == 'CONNECTED') {
+                subTopic(connection, markets);
+            } else if (res[0] == 'MESSAGE') {
+                var data = JSON.parse(res[res.length-1].replace('\0',''))
+                if (data.code == 200) {
+                    var redes = /destination:(.*)\n/;
+                    var re = /quote\.(.*)\.depth/;
+                    var exec = re.exec(s);
+                    var pair = exec!=null ? exec[1] : markets[0];
+                    let asks = {}
+                    let bids = {}
+                    var olddepth = {'asks':{}, 'bids':{}}
+                    if (depths.has(pair))
+                        olddepth = depths.get(pair)
+                    if (exec == null)
+                        data = data.data
+                    var changes = 0
+                    if(data&&data.data&&data.data.ask)data.data.ask.forEach((level) => {
+                        var tick = Number.parseFloat(level.ticks).toString()
+                        var status = (olddepth.asks[tick] == null || olddepth.asks[tick][2] != level.lots) ? 1 : 0;
+                        if (status != 0) {
+                            changes += 1
+                            asks[tick] = ['1', tick, colors.red(level.lots), level.totalLots, level.addTotalLots];
+                        } else
+                            asks[tick] = ['1', tick, level.lots, level.totalLots, level.addTotalLots];
+                    });
+                    if(data&&data.data&&data.data.bid)data.data.bid.forEach((level) => {
+                        var tick = Number.parseFloat(level.ticks).toString()
+                        var status = (olddepth.bids[tick] == null || olddepth.bids[tick][2] != level.lots) ? 1 : 0;
+                        if (status != 0) {
+                            changes += 1
+                            bids[tick] = ['1', tick, colors.green(level.lots), level.totalLots, level.addTotalLots];
+                        } else
+                            bids[tick] = ['1', tick, level.lots, level.totalLots, level.addTotalLots];
+                    });
+
+                    Object.keys(olddepth.asks).forEach((tick) => {
+                        tick = colors.stripColors(tick)
+                        if (asks[tick] == null) {
+                            asks[colors.gray(tick)] = [colors.gray('0'), colors.gray(tick), 0,0,0];
+                            setTimeout(() => {delete asks[colors.gray(tick)]}, 100);
+                            changes += 1
+                        }
+                    })
+
+                    Object.keys(olddepth.bids).forEach((tick) => {
+                        tick = colors.stripColors(tick)
+                        if (bids[tick] == null) {
+                            bids[colors.gray(tick)] = [colors.gray('0'), colors.gray(tick), 0,0,0];
+                            setTimeout(() => {delete bids[colors.gray(tick)]}, 100);
+                            changes += 1
+                        }
+                    })
+
+                    ben_counter += changes
+                    depths.set(pair, {'asks':asks, 'bids':bids})
+                    if (ben_timer == 0)
+                        ben_timer = new Date().getTime()
+                    var elapsed = new Date().getTime() - ben_timer
+                    showRate(elapsed, ben_counter, changes)
+                }
             }
         }
     });
 
-    if (connection.connected) {
-        subTopic(connection, markets);
-    }
     setTimeout(function() { check_connection(connection) }, 1000)
 });
 
 function fmtItem(item, decimal, dir) {
-    return ' '.repeat(8) + item;
+    return item;
 }
 
 function fmtItem2(item, decimal=8) {
@@ -160,7 +197,7 @@ function fmtItem2(item, decimal=8) {
 	var idx = stripeditem.indexOf('.');
     if (idx == -1)
         stripeditem = stripeditem + '.0'
-    var prefix = ' '.repeat(4 - stripeditem.indexOf('.'))
+    var prefix = ' '.repeat(8 - stripeditem.indexOf('.'))
     var padding = decimal - (stripeditem.length - stripeditem.indexOf('.'))
     var suffix = ' '.repeat(padding>0?padding:0)
     return prefix + item + colors.gray(suffix)
@@ -174,8 +211,8 @@ function genBookView(book, pair) {
     var depth = {'asks':{}, 'bids':{}}
     if (depths.has(pair))
         depth = depths.get(pair)
-    var asks = Object.values(depth['asks']).sort((a, b) => { return Number.parseFloat(colors.stripColors(a[1])) - Number.parseFloat(colors.stripColors(b[1])) }).slice(0,30);
-    var bids = Object.values(depth['bids']).sort((b, a) => { return Number.parseFloat(colors.stripColors(a[1])) - Number.parseFloat(colors.stripColors(b[1])) }).slice(0,30);
+    var asks = Object.values(depth['asks']).sort((a, b) => { return Number.parseFloat(colors.stripColors(a[1])) - Number.parseFloat(colors.stripColors(b[1])) }).slice(0,20);
+    var bids = Object.values(depth['bids']).sort((b, a) => { return Number.parseFloat(colors.stripColors(a[1])) - Number.parseFloat(colors.stripColors(b[1])) }).slice(0,20);
     if (asks.length < 20) {
         for (var i=0; i<(20-asks.length); ++i)
             rows.push(['','','']);
@@ -228,7 +265,7 @@ function genBookViews() {
 setInterval(() => {
     genBookViews()
     screen.render()
-}, 10);
+}, 100);
 
 dolog('Connecting to ' + url);
 client.connect(url, null);
