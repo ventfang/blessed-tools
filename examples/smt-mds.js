@@ -155,16 +155,16 @@ client.on('connect', function(connection) {
                     var status = (olddepth.asks[tick] == null || olddepth.asks[tick][2] != level[1]) ? 1 : 0;
                     if (status != 0) {
                         changes += 1
-                        asks[tick] = ['1', tick, colors.red(level[1])];
+                        asks[tick] = ['1', tick, colors.bold(colors.red(level[1]))];
                     } else
                         asks[tick] = ['1', tick, level[1]];
                 });
                 if(data&&data.bids)data.bids.forEach((level) => {
                     var tick = level[0].toString()
-                    var status = (olddepth.bids[tick] == null || olddepth.bids[tick][2] != level.lots) ? 1 : 0;
+                    var status = (olddepth.bids[tick] == null || olddepth.bids[tick][2] != level[1]) ? 1 : 0;
                     if (status != 0) {
                         changes += 1
-                        bids[tick] = ['1', tick, colors.green(level[1])];
+                        bids[tick] = ['1', tick, colors.bold(colors.green(level[1]))];
                     } else
                         bids[tick] = ['1', tick, level[1]];
                 });
