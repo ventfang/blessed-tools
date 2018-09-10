@@ -3,13 +3,13 @@ var blessed = require('blessed')
   , contrib = require('../')
   , screen = blessed.screen()
   , colors = require('colors/safe');
-var grid = new contrib.grid({rows: 12, cols: 5, screen: screen})
+var grid = new contrib.grid({rows: 12, cols: 6, screen: screen})
 
-var page_size = 5;
+var page_size = 6;
 var cur_page_book = 0;
 var books = [];
-for (var i=0; i<5; ++i) {
-    var book = grid.set(0,i,10,1,contrib.book,
+for (var i=0; i<page_size; ++i) {
+    var book = grid.set(0,i,9,1,contrib.book,
         { keys: true
         , fg: 'white'
         , selectedFg: 'white'
@@ -18,12 +18,23 @@ for (var i=0; i<5; ++i) {
         , label: 'Order Book'
         , border: {type: "line", fg: "cyan"}
         , columnSpacing: 1
-        , columnWidth: [5, 12, 25]});
+        , columnWidth: [5, 17, 17]});
     screen.append(book);
     books.push(book);
 }
 
-var msgbox = grid.set(10,0,2,5,contrib.log,
+var stat = grid.set(9,0,1,6,contrib.table,
+    { keys: true
+        , fg: 'white'
+        , selectedFg: 'white'
+        , selectedBg: 'blue'
+        , interactive: false
+        , label: ''
+        , border: {type: "line", fg: "cyan"}
+        , columnSpacing: 1
+        , columnWidth: [200]});
+screen.append(stat);
+var msgbox = grid.set(10,0,2,6,contrib.log,
    {
     fg: "green"
    , selectedFg: 'white'
@@ -43,14 +54,16 @@ var book_headers = ['', 'price', 'amount']
 
 var markets = ["btcusdt", "ethusdt", "etcusdt", "dashusdt","eosusdt"]
 markets = ["smtusdt", "mdsusdt"]
+markets = ["smtbtc", "mdsbtc"]
+markets = ["smteth", "mdseth"]
+markets = ["smtusdt", "mdsusdt","smtbtc", "mdsbtc","smteth", "mdseth"]
 markets.forEach((pair) => {tickers.set(pair, {price:0,updown:0})})
 
 function dolog(msg) {
-    //msgbox.log(msg);
+    msgbox.log(msg);
 }
 
 function showRate(elapsed, reqs) {
-    return;
     var rate = Math.round(reqs/elapsed*1e3)
     var msg = 'time us: ' + elapsed/1e3 + 's' + ', reqs: ' + reqs + ', rate: ' + rate + 'ops'
     msgbox.log(msg);
@@ -214,8 +227,8 @@ function genBookView(book, pair) {
     var depth = {'asks':{}, 'bids':{}}
     if (depths.has(pair))
         depth = depths.get(pair)
-    var asks = Object.values(depth['asks']).sort((a, b) => { return Number.parseFloat(colors.stripColors(a[1])) - Number.parseFloat(colors.stripColors(b[1])) }).slice(0,20);
-    var bids = Object.values(depth['bids']).sort((b, a) => { return Number.parseFloat(colors.stripColors(a[1])) - Number.parseFloat(colors.stripColors(b[1])) }).slice(0,20);
+    var asks = Object.values(depth['asks']).sort((a, b) => { return Number.parseFloat(colors.stripColors(a[1])) - Number.parseFloat(colors.stripColors(b[1])) }).slice(0,30);
+    var bids = Object.values(depth['bids']).sort((b, a) => { return Number.parseFloat(colors.stripColors(a[1])) - Number.parseFloat(colors.stripColors(b[1])) }).slice(0,30);
     if (asks.length < 20) {
         for (var i=0; i<(20-asks.length); ++i)
             rows.push(['','','']);
@@ -265,10 +278,22 @@ function genBookViews() {
     });
 }
 
-var PROFITS = 0.01
-function showDiifer() {
-    smt = depths.get('smtusdt')
-    mds = depths.get('mdsusdt')
+var PROFITS = 0.0
+var blinking = 0
+function split_pair(pair) {
+    quote = pair.substring(3)
+    if (pair.endsWith('usdt'))
+        quote = pair.substring(pair.length-4)
+    base = pair.substring(0,pair.length-quote.length)
+    return [base, quote]
+}
+function showDiifer(pair1, pair2, amount1, amount2) {
+    smt = depths.get(pair1)
+    mds = depths.get(pair2)
+    base1 = split_pair(pair1)[0]
+    base2 = split_pair(pair2)[0]
+
+    header = `#${pair1}|${pair2}:`.padEnd(19, ' ')
     if (mds && smt && mds.asks && smt.bids) {
         var smt_asks = Object.keys(smt['asks']).sort((a, b) => { return Number.parseFloat(colors.stripColors(a)) - Number.parseFloat(colors.stripColors(b)) }).slice(0,1);
         var smt_bids = Object.keys(smt['bids']).sort((b, a) => { return Number.parseFloat(colors.stripColors(a)) - Number.parseFloat(colors.stripColors(b)) }).slice(0,1);
@@ -278,27 +303,42 @@ function showDiifer() {
         smt_ask1 = smt_asks[0]
         mds_bid1 = mds_bids[0]
         mds_ask1 = mds_asks[0]
-        diff1 = (mds_ask1 - smt_bid1).toFixed(6)
-        diffp1 = mds_ask1 / smt_bid1
-        diff2 = (mds_bid1 - smt_ask1).toFixed(6)
-        diffp2 = smt_ask1 / mds_bid1
+
+        diff1 = (mds_ask1 - smt_bid1).toFixed(8)
+        diffp1 = smt_bid1 / mds_ask1 
+
+        diff2 = (mds_bid1 - smt_ask1).toFixed(8)
+        diffp2 = mds_bid1 / smt_ask1
+
         // sell smt, buy mds; sell mds, buy smt;
         let profit = PROFITS
-        var earn1 = ((70000 / diffp1 * (diffp1 + profit) - 70000) / 70000 * 100).toFixed(3)
-        var earn11 = 70000 / diffp1 * (diffp1 + profit)
-        diffp1 = diffp1.toFixed(6)
-        // sell mds, buy smt; sell smt, buy mds;
-        var earn2 = ((30000 / diffp2 * (diffp2 + profit) - 30000) / 30000 * 100).toFixed(3)
-        var earn22 = 30000 / diffp2 * (diffp2 + profit)
-        diffp2 = (1/diffp2).toFixed(6)
-        msg = `diff: mds:smt => ${diff1} * 1:${diffp1}   mds:smt => ${diff2} * 1:${diffp2}   @earn(${(profit*100).toFixed(1)}%): 70000+${(earn11-70000).toFixed(0)} smt ${earn1}% | 30000+${(earn22-30000).toFixed(0)} mds ${earn2}%`
+        var earn1 = ((amount1 * (diffp1 + profit) - amount1) / amount1 * 100).toFixed(3)
+        var earn11 = amount1 * (diffp1 + profit)
+        diffp1s = (1/diffp1).toFixed(8)
+
+        // sell mds, buy smt; sell sm:, buy mds;
+        var earn2 = ((amount2 * (diffp2 + profit) - amount2) / amount2 * 100).toFixed(3)
+        var earn22 = amount2 * (diffp2 + profit)
+        diffp2s = (diffp2).toFixed(8)
+
+        blinking ++;
+        var msg = `${colors.white(header)}${diff1}*1:${diffp1<0.75&&blinking%10<7 ? colors.inverse(colors.yellow(diffp1s)):colors.red(diffp1s)}|${colors.red((earn11).toFixed(0))}${base2}(${earn1}%)  ${diff2}*1:${diffp2>1.11&&blinking%10<7 ? colors.inverse(colors.yellow(diffp2s)):colors.yellow(diffp2s)}|${colors.red((earn22).toFixed(0))}${base1}(${earn2}%) @(${(profit).toFixed(3)})`
+        return colors.green(msg)
         msgbox.log(msg)
     }
 }
 
 setInterval(() => {
     genBookViews()
-    showDiifer()
+    var msg1 = showDiifer('smtusdt', 'mdsusdt', 70000, 65000)
+    var msg2 = showDiifer('smtbtc', 'mdsbtc', 70000, 65000)
+    var msg3 = showDiifer('smteth', 'mdseth', 70000, 65000)
+    //msgbox.log(`${msg1} ${msg2} ${msg3}`)
+    rows = []
+    rows.push([`${msg1}`])
+    rows.push([`${msg2}`])
+    rows.push([`${msg3}`])
+    stat.setData({title:'', headers: [''], data: rows});
     screen.render()
 }, 50);
 
