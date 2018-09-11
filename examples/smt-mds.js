@@ -287,6 +287,19 @@ function split_pair(pair) {
     base = pair.substring(0,pair.length-quote.length)
     return [base, quote]
 }
+
+function search_best_price(levels, amount) {
+    for (var level of levels) {
+        if (colors.gray('0') == level[0])
+            continue;
+        amount = amount - Number.parseFloat(colors.stripColors(level[2]))
+        if (amount < 1) {
+            return Number.parseFloat(colors.stripColors(level[1]))
+        }
+    }
+    return 0
+}
+
 function showDiifer(pair1, pair2, amount1, amount2) {
     smt = depths.get(pair1)
     mds = depths.get(pair2)
@@ -295,14 +308,34 @@ function showDiifer(pair1, pair2, amount1, amount2) {
 
     header = `#${pair1}|${pair2}:`.padEnd(19, ' ')
     if (mds && smt && mds.asks && smt.bids) {
-        var smt_asks = Object.keys(smt['asks']).sort((a, b) => { return Number.parseFloat(colors.stripColors(a)) - Number.parseFloat(colors.stripColors(b)) }).slice(0,1);
-        var smt_bids = Object.keys(smt['bids']).sort((b, a) => { return Number.parseFloat(colors.stripColors(a)) - Number.parseFloat(colors.stripColors(b)) }).slice(0,1);
-        var mds_asks = Object.keys(mds['asks']).sort((a, b) => { return Number.parseFloat(colors.stripColors(a)) - Number.parseFloat(colors.stripColors(b)) }).slice(0,1);
-        var mds_bids = Object.keys(mds['bids']).sort((b, a) => { return Number.parseFloat(colors.stripColors(a)) - Number.parseFloat(colors.stripColors(b)) }).slice(0,1);
-        smt_bid1 = smt_bids[0]
-        smt_ask1 = smt_asks[0]
-        mds_bid1 = mds_bids[0]
-        mds_ask1 = mds_asks[0]
+        var smt_asks = Object.values(smt['asks']).sort((a, b) => { return Number.parseFloat(colors.stripColors(a[1])) - Number.parseFloat(colors.stripColors(b[1])) }).slice(0,20);
+        var smt_bids = Object.values(smt['bids']).sort((b, a) => { return Number.parseFloat(colors.stripColors(a[1])) - Number.parseFloat(colors.stripColors(b[1])) }).slice(0,20);
+        var mds_asks = Object.values(mds['asks']).sort((a, b) => { return Number.parseFloat(colors.stripColors(a[1])) - Number.parseFloat(colors.stripColors(b[1])) }).slice(0,20);
+        var mds_bids = Object.values(mds['bids']).sort((b, a) => { return Number.parseFloat(colors.stripColors(a[1])) - Number.parseFloat(colors.stripColors(b[1])) }).slice(0,20);
+
+        smt_bid1 = Number.parseFloat(colors.stripColors(smt_bids[0][1]))
+        smt_ask1 = Number.parseFloat(colors.stripColors(smt_asks[0][1]))
+        mds_bid1 = Number.parseFloat(colors.stripColors(mds_bids[0][1]))
+        mds_ask1 = Number.parseFloat(colors.stripColors(mds_asks[0][1]))
+
+        shot_smt_bid1 = search_best_price(smt_bids, amount1)
+        level = smt.bids[shot_smt_bid1.toString()]
+        smt.bids[shot_smt_bid1.toString()] = [colors.bgYellow('***'), level[1], level[2]];
+
+        shot_smt_ask1 = search_best_price(smt_asks, amount1)
+        level = smt.asks[shot_smt_ask1.toString()]
+        smt.asks[shot_smt_ask1.toString()] = [colors.bgYellow('***'), level[1], level[2]];
+
+        shot_mds_bid1 = search_best_price(mds_bids, amount2)
+        level = mds.bids[shot_mds_bid1.toString()]
+        mds.bids[shot_mds_bid1.toString()] = [colors.bgYellow('***'), level[1], level[2]];
+
+        shot_mds_ask1 = search_best_price(mds_asks, amount2)
+        level = mds.asks[shot_mds_ask1.toString()]
+        mds.asks[shot_mds_ask1.toString()] = [colors.bgYellow('***'), level[1], level[2]];
+
+        shot_diffp1 = shot_mds_ask1 / shot_smt_bid1
+        shot_diffp2 = shot_mds_bid1 / shot_smt_ask1
 
         diff1 = (mds_ask1 - smt_bid1).toFixed(8)
         diffp1 = smt_bid1 / mds_ask1 
@@ -322,14 +355,14 @@ function showDiifer(pair1, pair2, amount1, amount2) {
         diffp2s = (diffp2).toFixed(8)
 
         blinking ++;
-        var msg = `${colors.white(header)}${diff1}*1:${diffp1<0.75&&blinking%10<7 ? colors.inverse(colors.yellow(diffp1s)):colors.red(diffp1s)}|${colors.red((earn11).toFixed(0))}${base2}(${earn1}%)  ${diff2}*1:${diffp2>1.11&&blinking%10<7 ? colors.inverse(colors.yellow(diffp2s)):colors.yellow(diffp2s)}|${colors.red((earn22).toFixed(0))}${base1}(${earn2}%) @(${(profit).toFixed(3)})`
+        var msg = `${colors.white(header)}${diff1}*1:${diffp1<0.75&&blinking%10<7 ? colors.inverse(colors.yellow(diffp1s)):colors.red(diffp1s)}|${colors.red((earn11).toFixed(0))}${base2}(${earn1}%)  ${diff2}*1:${diffp2>1.11&&blinking%10<7 ? colors.inverse(colors.yellow(diffp2s)):colors.yellow(diffp2s)}|${colors.red((earn22).toFixed(0))}${base1}(${earn2}%) @(${(profit).toFixed(3)}) \
+        ${shot_diffp1.toFixed(8)} - ${shot_diffp2.toFixed(8)}`
         return colors.green(msg)
         msgbox.log(msg)
     }
 }
 
 setInterval(() => {
-    genBookViews()
     var msg1 = showDiifer('smtusdt', 'mdsusdt', 70000, 65000)
     var msg2 = showDiifer('smtbtc', 'mdsbtc', 70000, 65000)
     var msg3 = showDiifer('smteth', 'mdseth', 70000, 65000)
@@ -339,8 +372,10 @@ setInterval(() => {
     rows.push([`${msg2}`])
     rows.push([`${msg3}`])
     stat.setData({title:'', headers: [''], data: rows});
+
+    genBookViews()
     screen.render()
-}, 50);
+}, 200);
 
 dolog('Connecting to ' + url);
 client.connect(url, null);
