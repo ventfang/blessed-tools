@@ -48,9 +48,15 @@ var client = new WebSocketClient()
 var changes_disp_interval = 3;
 var tickers = new Map();
 var depths = new Map();
-var ticker_headers = ['  pair', 'last', 'lastCNY', 'change', 'baseVol', 'quoteVol', '24h high', '24h low', 'updated at', 'last update']
+var ticker_headers = ['  pair', 'last', 'CNY', 'change', 'baseVol', 'quoteVol', '24h high', '24h low', 'updated at', 'last update']
 var book_headers = ['', 'price', 'CNY', 'amount']
-var index_prices = {'usdt':6.8, 'btc':45000, 'eth': 1500}
+var markets = ['IPGO_BTC', 'IPGO_ETH', 'ETH_BTC']
+
+var index_prices = {
+    'usdt': 6.8,
+    'btc': 45000,
+    'eth': 1350,
+}
 
 function dolog(msg) {
     msgbox.log(msg);
@@ -61,8 +67,7 @@ function subAllTicker(conn) {
     conn.sendUTF(cmd)
 }
 
-function subTopic(conn, pair, channel) {
-    var cmd = 'sub.market.'+pair+'.'+channel;
+function subTopic(conn, pair, channel) { var cmd = 'sub.market.'+pair+'.'+channel;
     conn.sendUTF(cmd)
 }
 
@@ -98,6 +103,7 @@ client.on('connect', function(connection) {
     connection.on('message', function(message) {
         last_received = 0;
         if (message.type === 'utf8') {
+            //dolog("Received: '" + message.utf8Data + "'");
             var response = '';
             try {
                 if (message.utf8Data != 'pong')
@@ -116,17 +122,20 @@ client.on('connect', function(connection) {
                         var ticker = {'pair':data[0], 'updown':0,'price':data[1], 'change':data[4], 'baseVol':data[5], 'quoteVol':data[6],'high':data[7],'low':data[8],'time':data[9]};
                         ticker['color'] = {'price':changes_disp_interval, 'change':changes_disp_interval, 'baseVol':changes_disp_interval, 'quoteVol':changes_disp_interval,'high':changes_disp_interval,'low':changes_disp_interval,'time':changes_disp_interval};
                         tickers.set(ticker['pair'], ticker);
-                        subTopic(connection, ticker['pair'], 'depth');
+                        //subTopic(connection, ticker['pair'], 'depth');
                         if (ticker['pair'] == 'BTC_USDT')
                             index_prices['btc'] = index_prices['usdt'] * ticker['price']
-                        else if (ticker['pair'] == 'ETH_USDT')
-                            index_prices['eth'] = index_prices['usdt'] * ticker['price']
+                        else if (ticker['pair'] == 'ETH_BTC')
+                            index_prices['eth'] = index_prices['btc'] * ticker['price']
+                    });
+                    markets.forEach(function(pair){
+                        subTopic(connection, pair, 'depth')
                     });
                 } else if (response[1] == 'u') {
                     var data = response[3];
                     var ticker = {'pair':data[0], 'price':data[1], 'change':data[4], 'baseVol':data[5], 'quoteVol':data[6],'high':data[7],'low':data[8],'time':data[9]};
                     if (ticker['pair'] == 'BTC_USDT')
-                        index_prices['btc'] = index_prices['usdt'] * ticker['price']
+                            index_prices['btc'] = index_prices['usdt'] * ticker['price']
                     else if (ticker['pair'] == 'ETH_BTC')
                         index_prices['eth'] = index_prices['btc'] * ticker['price']
                     if (tickers.has(ticker['pair'])) {
@@ -160,8 +169,7 @@ client.on('connect', function(connection) {
                     let bids = {}
                     let datas = response[3];
                     datas['ask'].forEach((data) => { asks[data[1]] = data; });
-                    datas['bid'].forEach((data) => { bids[data[1]] = data; });
-                    depths.set(topic[2], {'asks':asks, 'bids':bids})
+                    datas['bid'].forEach((data) => { bids[data[1]] = data; }); depths.set(topic[2], {'asks':asks, 'bids':bids})
                 } else if(response[1] == 'u') {
                     if (!depths.has(topic[2]))
                         depths.set(topic[2], {'asks':{}, 'bids':{}})
@@ -170,7 +178,7 @@ client.on('connect', function(connection) {
                     if (data[2][0] == '0') {
                         level[colors.gray(data[2][1])] = [colors.gray(data[2][0]),colors.gray(data[2][1]),colors.gray(data[2][2])];
                         delete level[data[2][1]]
-                        setTimeout(() => {delete level[colors.gray(data[2][1])]}, 500);
+                        setTimeout(() => {delete level[colors.gray(data[2][1])]}, 3000);
                     } else {
                         //level[data[2][1]] = [data[2][0],data[2][1], data[1] == 'BUY' ? colors.bgGreen(data[2][2]):colors.bgRed(data[2][2])];
                         level[data[2][1]] = [data[2][0],data[2][1], colors.bold(data[1] == 'BUY' ? colors.green(data[2][2]):colors.red(data[2][2]))];
@@ -242,11 +250,12 @@ function genBookView(book, pair) {
         var ticker = {price:'',updown:0}
         if (tickers.has(pair))
             ticker = tickers.get(pair)
+
         var cny = get_cny_price(pair, colors.stripColors(ticker['price']));
         if (ticker.updown > 0) {
-            rows.push([colors.bgRed(' '.repeat(17)), fmtItem(colors.bold(colors.black(ticker['price'])),0,0), colors.black(cny.toFixed(5)), '']);
+            rows.push([colors.bgRed(' '.repeat(17)), fmtItem(colors.bold(colors.black(ticker['price'])),0,0), colors.black(cny.toFixed(5))]);
         } else {
-            rows.push([colors.bgGreen(' '.repeat(17)), fmtItem(colors.bold(colors.black(ticker['price'])),0,0), colors.black(cny.toFixed(5)), '']);
+            rows.push([colors.bgGreen(' '.repeat(17)), fmtItem(colors.bold(colors.black(ticker['price'])),0,0), colors.black(cny.toFixed(5))]);
         }
     }
 
@@ -270,14 +279,10 @@ function genBookViews() {
     var pairs = []
     tickers.forEach((v,k) => {pairs.push(k)});
     pairs.sort((a,b) => {
-        aa = a.split('_'); 
-        bb = b.split('_'); 
-        a1 = aa[0]
-        b1 = bb[0]
-        return a1.localeCompare(b1);
         return a.substr(a.indexOf('_')+1) < b.substr(b.indexOf('_')+1);
     })
     var cur_pairs = pairs.slice(cur_page_book*page_size, cur_page_book*page_size+page_size);
+    cur_pairs = markets
     books.forEach((b,i,bs) => {
         if (i < cur_pairs.length)
             genBookView(b, cur_pairs[i])
@@ -290,8 +295,6 @@ function genTickerView() {
     var rows = []
     var now = new Date().getTime()
     //['  pair', 'last', 'change', 'baseVol', 'quoteVol', '24h high', '24h low', 'updated at']
-
-    //var sorted_pairs = Array.from(tickers.keys()).sort((a, b) => { return a.split('_')[0].localeCompare(b.split('_')[0])});
     var sorted_pairs = Array.from(tickers.keys()).sort((a, b) => { 
         aa = a.split('_'); 
         bb = b.split('_'); 

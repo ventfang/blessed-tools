@@ -44,6 +44,7 @@ var msgbox = grid.set(10,0,2,6,contrib.log,
 screen.append(msgbox)
 
 var url = 'wss://api.huobi.pro/ws';
+//var url = 'wss://api.hbg.com/ws';
 var WebSocketClient = require('websocket').client
 var client = new WebSocketClient()
 var changes_disp_interval = 3;
@@ -300,14 +301,14 @@ function search_best_price(levels, amount) {
     return 0
 }
 
-function showDiifer(pair1, pair2, amount1, amount2) {
+function showDiifer(pair1, pair2, amount1, amount2, colorTrans) {
     smt = depths.get(pair1)
     mds = depths.get(pair2)
     base1 = split_pair(pair1)[0]
     base2 = split_pair(pair2)[0]
 
     header = `#${pair1}|${pair2}:`.padEnd(19, ' ')
-    if (mds && smt && mds.asks && smt.bids) {
+    if (mds && smt && mds.asks && mds.bids && smt.asks && smt.bids) {
         var smt_asks = Object.values(smt['asks']).sort((a, b) => { return Number.parseFloat(colors.stripColors(a[1])) - Number.parseFloat(colors.stripColors(b[1])) }).slice(0,20);
         var smt_bids = Object.values(smt['bids']).sort((b, a) => { return Number.parseFloat(colors.stripColors(a[1])) - Number.parseFloat(colors.stripColors(b[1])) }).slice(0,20);
         var mds_asks = Object.values(mds['asks']).sort((a, b) => { return Number.parseFloat(colors.stripColors(a[1])) - Number.parseFloat(colors.stripColors(b[1])) }).slice(0,20);
@@ -320,19 +321,23 @@ function showDiifer(pair1, pair2, amount1, amount2) {
 
         shot_smt_bid1 = search_best_price(smt_bids, amount1)
         level = smt.bids[shot_smt_bid1.toString()]
-        smt.bids[shot_smt_bid1.toString()] = [colors.bgYellow('***'), level[1], level[2]];
+        if (level)
+        smt.bids[shot_smt_bid1.toString()] = [colorTrans('***'), level[1], level[2]];
 
         shot_smt_ask1 = search_best_price(smt_asks, amount1)
         level = smt.asks[shot_smt_ask1.toString()]
-        smt.asks[shot_smt_ask1.toString()] = [colors.bgYellow('***'), level[1], level[2]];
+        if (level)
+        smt.asks[shot_smt_ask1.toString()] = [colorTrans('***'), level[1], level[2]];
 
         shot_mds_bid1 = search_best_price(mds_bids, amount2)
         level = mds.bids[shot_mds_bid1.toString()]
-        mds.bids[shot_mds_bid1.toString()] = [colors.bgYellow('***'), level[1], level[2]];
+        if (level)
+        mds.bids[shot_mds_bid1.toString()] = [colorTrans('***'), level[1], level[2]];
 
         shot_mds_ask1 = search_best_price(mds_asks, amount2)
         level = mds.asks[shot_mds_ask1.toString()]
-        mds.asks[shot_mds_ask1.toString()] = [colors.bgYellow('***'), level[1], level[2]];
+        if (level)
+        mds.asks[shot_mds_ask1.toString()] = [colorTrans('***'), level[1], level[2]];
 
         shot_diffp1 = shot_mds_ask1 / shot_smt_bid1
         shot_diffp2 = shot_mds_bid1 / shot_smt_ask1
@@ -347,7 +352,7 @@ function showDiifer(pair1, pair2, amount1, amount2) {
         let profit = PROFITS
         var earn1 = ((amount1 * (diffp1 + profit) - amount1) / amount1 * 100).toFixed(3)
         var earn11 = amount1 * (diffp1 + profit)
-        diffp1s = (1/diffp1).toFixed(8)
+        diffp1s = (diffp1).toFixed(8)
 
         // sell mds, buy smt; sell sm:, buy mds;
         var earn2 = ((amount2 * (diffp2 + profit) - amount2) / amount2 * 100).toFixed(3)
@@ -363,14 +368,18 @@ function showDiifer(pair1, pair2, amount1, amount2) {
 }
 
 setInterval(() => {
-    var msg1 = showDiifer('smtusdt', 'mdsusdt', 70000, 65000)
-    var msg2 = showDiifer('smtbtc', 'mdsbtc', 70000, 65000)
-    var msg3 = showDiifer('smteth', 'mdseth', 70000, 65000)
+    var msg1 = showDiifer('smtusdt', 'mdsusdt', 70000, 70000, colors.bgYellow)
+    var msg2 = showDiifer('smtbtc', 'mdsbtc', 70000, 70000, colors.bgYellow)
+    var msg3 = showDiifer('smteth', 'mdseth', 70000, 70000, colors.bgYellow)
+    var msg4 = showDiifer('smtusdt', 'mdsusdt', 30000, 29000, colors.bgRed)
+    var msg5 = showDiifer('smtusdt', 'mdsusdt', 20000, 29000, colors.bgMagenta)
     //msgbox.log(`${msg1} ${msg2} ${msg3}`)
     rows = []
     rows.push([`${msg1}`])
     rows.push([`${msg2}`])
     rows.push([`${msg3}`])
+    rows.push([`${msg4}`])
+    rows.push([`${msg5}`])
     stat.setData({title:'', headers: [''], data: rows});
 
     genBookViews()
